@@ -368,11 +368,9 @@ class GoToGoal:
     def __init__(self):
         self.type = 'gotogoal'
         # gains
-        self.Kp = 4
+        self.Kp = 2
         self.Ki = 0.01
-        # 0.01
         self.Kd = 0.01
-        # 0.01
 
         # memory
         self.E_k = 0
@@ -396,13 +394,8 @@ class GoToGoal:
         theta_g = math.atan2(u_x, u_y) * RAD2DEG
 
         # heading error
-        e_k_deg = theta_g - nav.the
-        if e_k_deg > 180:
-            e_k_deg -= 360
-        elif e_k_deg < -180:
-            e_k_deg += 360
-        e_k = e_k_deg * DEG2RAD
-        # e_k = math.atan2(math.sin(e_k), math.cos(e_k))
+        e_k = (theta_g - nav.the) * DEG2RAD
+        e_k = math.atan2(math.sin(e_k), math.cos(e_k))
 
         # calculate pid
         e_P = e_k
@@ -413,9 +406,6 @@ class GoToGoal:
         # save errors
         self.E_k = e_I
         self.e_k_1 = e_k
-
-        # debug
-        # print((u_x, u_y, nav.the, e_k*57.3, theta_g))
 
         return (v, w)
     
@@ -428,8 +418,9 @@ class GoToHeading(GoToGoal):
     def __init__(self):
         super().__init__()
         self.type = 'gotoheading'
-        self.Kp = 3
-        self.Ki = 0.2
+        self.Kp = 2
+        self.Ki = 0.05
+        self.Kd = 0.01
 
     def execute(self, nav, input, dt):
         _, w = super().execute(nav, input, dt)
@@ -457,12 +448,8 @@ class Robot:
         self.motor_right = motor_right
 
     def set_wheel_speeds(self, vel_l, vel_r):
-        # self.motor_left.run_at_speed(-vel_l)
-        # self.motor_right.run_at_speed(vel_r)
         self.motor_left.run_at_speed(-vel_l * 5)
         self.motor_right.run_at_speed(vel_r * 5)
-
-        # print(-vel_l * 5, vel_r*5)
 
     def uni_to_diff(self, v, w):
         """ 
@@ -522,7 +509,7 @@ class Supervisor:
         self.v = 20     # cm/s
         self.x_g = None  # cm
         self.y_g = None  # cm
-        self.d_stop = 1 # cm
+        self.d_stop = 2 # cm
         self.the_stop = 0.5
         self.targets = []
         self.init()
@@ -544,10 +531,12 @@ class Supervisor:
 
     def execute(self, dt):
         if self.at_heading():
+            self.current_controller.reset()
             self.current_controller = self.controllers['gotogoal']
         elif self.at_goal():
             if self.has_target():
                 self.fetch_target()
+                self.current_controller.reset()
                 self.current_controller = self.controllers['gotoheading']
             else:
                 self.current_controller = self.controllers['stop']
@@ -635,12 +624,12 @@ def MainFnc_1000ms():
 robot = Robot()
 nav = Navigator(robot)
 sup = Supervisor(nav, robot)
-sup.add_target(40,0)
+sup.add_target(20,0)
+sup.add_target(20,20)
+sup.add_target(40,20)
 sup.add_target(40,40)
-sup.add_target(80,40)
-sup.add_target(80,80)
-sup.add_target(120,120)
-sup.add_target(120,0)
+sup.add_target(60,60)
+sup.add_target(60,0)
 sup.add_target(0,0)
 
 
