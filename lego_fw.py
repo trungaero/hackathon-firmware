@@ -42,12 +42,11 @@ LEFT_MOTOR = ""
 LIFT_MOTOR = ""
 HAND_MOTOR = ""
 
-"""/**************************************************************************************************
-CHASSIS PARAMETERS
-****************************************************************************************************/"""
+
 import math
 RAD2DEG = 180 / math.pi
 DEG2RAD = 1 / RAD2DEG
+
 
 def move_robot(data, default_speed):
     if data == "n1":
@@ -166,45 +165,6 @@ def set_speed_robot(data, default_speed):
     return default_speed
 
 
-"""/**************************************************************************************************
-@brief         MoveForwardForDegree
-@details       This function is used to runs forward for a given number of degrees
-
-@param[in]     LEFT_MOTOR   : Motor object
-@param[in]     Degree       : How many degrees to rotate relative to the starting point
-               Speed        : Sets the speed as a percentage of the rated speed for this motor
-
-@example       MoveForwardForDegree(LEFT_MOTOR, 90, 30) : Move forward by moving Motor by 90 degree at 30% rated speed
-
-@return        None
-****************************************************************************************************/"""
-
-
-def MoveForwardForDegree(LEFT_MOTOR, Degree, Speed):
-    Speed = abs(Speed)
-    Speed = ~Speed + 1
-    LEFT_MOTOR.run_for_degrees(Degree, Speed)
-
-
-"""/**************************************************************************************************
-@brief         GetCurrentAcceleration
-@details       Gets the acceleration of the hub along the x, y, and z axis
-               The positive X axis points to the right of your car: A positive acceleration along the X axis means you are accelerating to the right. Negative means to the left.
-               The positive Y axis points to the front of your car: A positive acceleration along the Y axis means you are accelerating forward, as if pressing the gas. Negative means backward, as if hitting the brakes or reversing.
-               The positive Z axis points up. A positive acceleration along the Z axis means that you are accelerating upward. Negative means downward.
-
-@param[in]     None
-
-@example       GetCurrentAcceleration()
-
-@return        [x, y, z]
-****************************************************************************************************/"""
-
-
-def GetCurrentAcceleration():
-    return motion.accelerometer()
-
-
 def LeftMotorInitialize(InPort):
     global LEFT_MOTOR
     LEFT_MOTOR = InPort
@@ -292,14 +252,6 @@ def CheckPressedButton(Button):
         return button.left.is_pressed()
     if Button == "Right":
         return button.right.is_pressed()
-
-
-"""/**************************************************************************************************
-@brief         LEGOCarInitialize
-
-@return        E_OK     : Initialize successfully
-               E_NOT_OK : Initialize failed
-****************************************************************************************************/"""
 
 
 def LEGOCarInitialize() -> int:
@@ -415,12 +367,11 @@ class Navigator:
 class GoToGoal:
     def __init__(self):
         self.type = 'gotogoal'
-
         # gains
-        self.Kp = 10
-        self.Ki = 0
+        self.Kp = 4
+        self.Ki = 0.01
         # 0.01
-        self.Kd = 0
+        self.Kd = 0.01
         # 0.01
 
         # memory
@@ -445,7 +396,12 @@ class GoToGoal:
         theta_g = math.atan2(u_x, u_y) * RAD2DEG
 
         # heading error
-        e_k = (theta_g - nav.the) * DEG2RAD
+        e_k_deg = theta_g - nav.the
+        if e_k_deg > 180:
+            e_k_deg -= 360
+        elif e_k_deg < -180:
+            e_k_deg += 360
+        e_k = e_k_deg * DEG2RAD
         # e_k = math.atan2(math.sin(e_k), math.cos(e_k))
 
         # calculate pid
@@ -459,13 +415,25 @@ class GoToGoal:
         self.e_k_1 = e_k
 
         # debug
-        print((u_x, u_y, nav.the, e_k*57.3, theta_g))
+        # print((u_x, u_y, nav.the, e_k*57.3, theta_g))
 
         return (v, w)
     
     def reset(self):
         self.E_k = 0
         self.e_k_1 = 0
+
+
+class GoToHeading(GoToGoal):
+    def __init__(self):
+        super().__init__()
+        self.type = 'gotoheading'
+        self.Kp = 3
+        self.Ki = 0.2
+
+    def execute(self, nav, input, dt):
+        _, w = super().execute(nav, input, dt)
+        return (0, w)
 
 
 class Stop:
@@ -541,24 +509,50 @@ class Robot:
 
 class Supervisor:
     def __init__(self, navigator, robot):
-        self.controllers = {'gotogoal': GoToGoal(), 'stop': Stop()}
+        self.controllers = {
+            'gotogoal': GoToGoal(), 
+            'stop': Stop(), 
+            'gotoheading': GoToHeading(),
+        }
         self.nav = navigator
         self.robot = robot
 
         # targets
         # desired speed in percent
         self.v = 20     # cm/s
-        self.x_g = 300  # cm
-        self.y_g = 100  # cm
+        self.x_g = None  # cm
+        self.y_g = None  # cm
         self.d_stop = 1 # cm
+        self.the_stop = 0.5
+        self.targets = []
+        self.init()
+        
+    def init(self):
+        self.x_g = self.nav.x
+        self.y_g = self.nav.y
+        self.targets = []
         self.start()
         
+    def add_target(self, x_g, y_g):
+        self.targets.append((x_g, y_g))
+
+    def has_target(self):
+        return len(self.targets) > 0
+
+    def fetch_target(self):
+        self.x_g, self.y_g = self.targets.pop(0)
+
     def execute(self, dt):
-        input = (self.x_g, self.y_g, self.v)    
+        if self.at_heading():
+            self.current_controller = self.controllers['gotogoal']
+        elif self.at_goal():
+            if self.has_target():
+                self.fetch_target()
+                self.current_controller = self.controllers['gotoheading']
+            else:
+                self.current_controller = self.controllers['stop']
 
-        if self.at_goal():
-            self.stop()
-
+        input = (self.x_g, self.y_g, self.v)   
         output = self.current_controller.execute(self.nav, input, dt)
         vel_l, vel_r = self.ensure_w(output)
         self.robot.set_wheel_speeds(vel_l, vel_r)
@@ -567,10 +561,13 @@ class Supervisor:
         self.current_controller = self.controllers['stop']
 
     def start(self):
-        self.current_controller = self.controllers['gotogoal']
+        self.current_controller = self.controllers['gotoheading']
 
     def at_goal(self):
         return norm([self.nav.x, self.nav.y], [self.x_g, self.y_g]) < self.d_stop
+    
+    def at_heading(self):
+        return abs(math.atan2(self.x_g-self.nav.x, self.y_g-self.nav.y) * RAD2DEG - self.nav.the) < self.the_stop
 
     def ensure_w(self, output):
         return self.robot.uni_to_diff(*output)
@@ -626,20 +623,27 @@ def MainFnc_20ms():
     nav.update()
     sup.execute(0.02)
 
+
 def MainFnc_200ms():
     ComCheck()
     
     
-
-
 def MainFnc_1000ms():
     pass
-
 
 
 robot = Robot()
 nav = Navigator(robot)
 sup = Supervisor(nav, robot)
+sup.add_target(40,0)
+sup.add_target(40,40)
+sup.add_target(80,40)
+sup.add_target(80,80)
+sup.add_target(120,120)
+sup.add_target(120,0)
+sup.add_target(0,0)
+
+
 
 def main():
     '''--------------------------
