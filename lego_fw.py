@@ -41,7 +41,7 @@ RIGHT_MOTOR = ""
 LEFT_MOTOR = ""
 LIFT_MOTOR = ""
 HAND_MOTOR = ""
-
+mode = "manual"
 
 import math
 RAD2DEG = 180 / math.pi
@@ -370,11 +370,12 @@ class GoToGoal:
         # gains
         self.Kp = 2
         self.Ki = 0.01
-        self.Kd = 0.01
+        self.Kd = 0.03
 
         # memory
         self.E_k = 0
         self.e_k_1 = 0
+        self.the_1 = 0
 
     def execute(self, nav, input, dt):
         """
@@ -397,21 +398,26 @@ class GoToGoal:
         e_k = (theta_g - nav.the) * DEG2RAD
         e_k = math.atan2(math.sin(e_k), math.cos(e_k))
 
+        e_the = (nav.the - self.the_1) * DEG2RAD
+        e_the = math.atan2(math.sin(e_the), math.cos(e_the))
+
         # calculate pid
         e_P = e_k
         e_I = self.E_k + e_k * dt
-        e_D = (e_k - self.e_k_1)/dt
+        e_D = e_the/dt
 
-        w = self.Kp*e_P + self.Ki*e_I + self.Kd*e_D
+        w = self.Kp*e_P + self.Ki*e_I - self.Kd*e_D
         # save errors
         self.E_k = e_I
         self.e_k_1 = e_k
+        self.the_1 = nav.the
 
         return (v, w)
     
     def reset(self):
         self.E_k = 0
         self.e_k_1 = 0
+        self.the_1 = 0
 
 
 class GoToHeading(GoToGoal):
@@ -420,7 +426,7 @@ class GoToHeading(GoToGoal):
         self.type = 'gotoheading'
         self.Kp = 2
         self.Ki = 0.05
-        self.Kd = 0.01
+        self.Kd = 0.05
 
     def execute(self, nav, input, dt):
         _, w = super().execute(nav, input, dt)
@@ -510,7 +516,7 @@ class Supervisor:
         self.x_g = None  # cm
         self.y_g = None  # cm
         self.d_stop = 2 # cm
-        self.the_stop = 0.5
+        self.the_stop = 2
         self.targets = []
         self.init()
         
@@ -571,28 +577,40 @@ def norm(p1, p2):
 
 
 def ComCheck():
+    global mode
     # # Read keyboard input from USB serial
+    default_speed = 60
     data = COMPort.read()
     if data:
-        data = str(data)
-        data = data[2:-1]
-        COMPort.write(data)
-        if data[0] == "n":
-            move_robot(data, default_speed)
-        elif data[0] == "a":
-            move_arm(data)
-        elif data[0] == "f":
-            move_foot(data)
-        elif data[0] == "s":
-            default_speed = set_speed_robot(data, default_speed)
-            COMPort.write("Set robot speed to:" + str(default_speed))
-        elif data.isdigit():  # Display numbers on LEGO Car Display Screen
-            # DisplayScreen(data)
+        try:
+            data = str(data)
+            data = data[2:-1]
+            COMPort.write(data)
+            if mode == 'manual': 
+                if data[0] == "n":
+                    move_robot(data, default_speed)
+                elif data[0] == "a":
+                    move_arm(data)
+                elif data[0] == "f":
+                    move_foot(data)
+                elif data[0] == "s":
+                    default_speed = set_speed_robot(data, default_speed)
+                    COMPort.write("Set robot speed to:" + str(default_speed))
+                elif data.isdigit():  # Display numbers on LEGO Car Display Screen
+                    # DisplayScreen(data)
+                    pass
+                else:
+                    # Hold all motors
+                    RIGHT_MOTOR.float()
+                    LEFT_MOTOR.float()
+
+            if data[0] == "m":
+                if data[1] == '0':
+                    mode = 'manual'
+                elif data[1] == '1':
+                    mode = 'auto'
+        except:
             pass
-        else:
-            # Hold all motors
-            RIGHT_MOTOR.float()
-            LEFT_MOTOR.float()
 
 
 def Activate(OS_Type):
@@ -609,12 +627,18 @@ def Activate(OS_Type):
 
 
 def MainFnc_20ms():
+    global mode
     nav.update()
-    sup.execute(0.02)
+    if mode == 'auto':
+        sup.execute(0.02)
+    ComCheck()
+    COMPort.write("nav:%.1f,%.1f,%.1f" % (nav.x, nav.y, nav.the)) 
+    
 
 
 def MainFnc_200ms():
-    ComCheck()
+    pass
+    # COMPort.write("nav:%.1f,%.1f,%.1f" % (nav.x, nav.y, nav.the))
     
     
 def MainFnc_1000ms():
@@ -640,8 +664,6 @@ def main():
     --------------------------'''
     OS_Counter = 0 # Store current OS Count. Count up every BASE_CYCLE_TIME
     '''------------------------'''
-
-    default_speed = 60
 
     # Initialize LEGO Car
     # If error happens, exit program
