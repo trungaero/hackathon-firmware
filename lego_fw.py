@@ -36,83 +36,115 @@ Cur_Roll = 0     # Current Roll
 Emergency_Stop = False  # Emergency Stop Flag
 Emergency_Fault_Counter = 0     # Debouncing counter
 Emergency_Heal_Counter = 0     # Debouncing counter
-abs_pos_orginal = 0
 RIGHT_MOTOR = ""
 LEFT_MOTOR = ""
 LIFT_MOTOR = ""
-HAND_MOTOR = ""
-mode = "manual"
+ARM_MOTOR = ""
+Arm_Position = 0
+Arm_Speed = 0
+Mode = "manual"
+Default_Speed = 60
+Default_Turn_Speed = 10
+
 
 import math
 RAD2DEG = 180 / math.pi
 DEG2RAD = 1 / RAD2DEG
 
 
-def move_robot(data, default_speed):
+
+"""/**************************************************************************************************
+INIT HARDWARE
+****************************************************************************************************/"""
+def init_sensor(inport):
+    global SENSOR
+    SENSOR = inport
+    SENSOR.mode(0)
+    return SENSOR
+
+
+def init_com_port(inport):
+    global COMPort
+    COMPort = inport
+    COMPort.mode(1)  # Set full duplex mode
+    time.sleep(0.1)
+    COMPort.baud(115200)  # Set baud rate
+    return COMPort
+
+
+def init_left_motor(inport):
+    global LEFT_MOTOR
+    LEFT_MOTOR = inport
+    LEFT_MOTOR.default(stop=0, deceleration=100)
+    time.sleep(0.2)
+    return LEFT_MOTOR
+
+
+def init_right_motor(inport):
+    global RIGHT_MOTOR
+    RIGHT_MOTOR = inport
+    RIGHT_MOTOR.default(stop=0, deceleration=100)
+    time.sleep(0.2)
+    return RIGHT_MOTOR
+
+
+def init_lift_motor(inport):
+    global LIFT_MOTOR
+    LIFT_MOTOR = inport
+    LIFT_MOTOR.default(stop=2, deceleration=100)
+    LIFT_MOTOR.preset(0)
+    abs_pos = LIFT_MOTOR.get()[2]
+    LIFT_MOTOR.run_to_position(-abs_pos)
+    time.sleep(0.5)
+    LIFT_MOTOR.preset(0)
+    LIFT_MOTOR.run_to_position(180, speed=20)
+    return LIFT_MOTOR
+
+
+def init_arm_motor(inport):
+    global ARM_MOTOR
+    ARM_MOTOR = inport
+    ARM_MOTOR.default(stop=2, deceleration=100)
+    ARM_MOTOR.preset(0)
+    abs_pos = ARM_MOTOR.get()[2]
+    ARM_MOTOR.run_to_position(-abs_pos)
+    time.sleep(0.5)
+    ARM_MOTOR.preset(0)
+    return ARM_MOTOR
+
+
+def move_robot(data):
+    global Default_Speed
+    global Default_Turn_Speed
+
     if data == "n1":
-        Move_Forward(default_speed)
+        move_forward(Default_Speed)
     elif data == "n2":  # Move backward
-        Move_Backward(default_speed)
+        move_backward(Default_Speed)
     elif data == "n3":  # Turn left
-        Turn_Left(default_speed)
+        turn_left(Default_Turn_Speed)
     elif data == "n4":  # Turn right
-        Turn_Right(default_speed)
-
-
-def move_arm_clockwise(data):
-    start_pos = 30
-    if data[2] == "0":
-        # start position
-        HAND_MOTOR.run_to_position(start_pos, speed=20)
-    if data[2] == "1":
-        # take 1 ball position
-        HAND_MOTOR.run_to_position(start_pos+45, speed=20)
-    if data[2] == "2":
-        # take 2 ball position
-        HAND_MOTOR.run_to_position(start_pos+90, speed=20)
-    if data[2] == "3":
-        # take 3 ball position
-        HAND_MOTOR.run_to_position(start_pos+135, speed=20)
-    if data[2] == "4":
-        # hold cup position
-        HAND_MOTOR.run_to_position(start_pos+110, speed=20)
-
-
-def move_arm_counter_clockwise(data):
-    start_pos = 30
-    if data[2] == "0":
-        # start position
-        HAND_MOTOR.run_to_position(start_pos, speed=-20)
-    if data[2] == "1":
-        # take 1 ball position
-        HAND_MOTOR.run_to_position(start_pos+90, speed=-20)
-    if data[2] == "2":
-        # take 2 ball position
-        HAND_MOTOR.run_to_position(start_pos+180, speed=-20)
-    if data[2] == "3":
-        # take 3 ball position
-        HAND_MOTOR.run_to_position(start_pos+270, speed=-20)
-    if data[2] == "4":
-        # hold cup position
-        HAND_MOTOR.run_to_position(start_pos+250, speed=-20)
+        turn_right(Default_Turn_Speed)
 
 
 def move_arm(data):
-    if data == "aa1":
-        Control_hand_motor_clockwise()
-    elif data == "aa2":
-        Control_hand_motor_counter_clockwise()
-    elif data[1] == "b":
-        move_arm_clockwise(data)
-    elif data[1] == "c":
-        move_arm_counter_clockwise(data)
-    else:
-        COMPort.write("Error: Command control hand is not correct.")
+    global Arm_Position
+    global Arm_Speed
+
+    # caculate degress
+    arm_pos = int(data[1:])
+
+    if arm_pos > 0:
+        Arm_Position = arm_pos
+        Arm_Speed = 20
+    elif arm_pos <= 0:
+        Arm_Position = abs(arm_pos)
+        Arm_Speed = -20
 
 
 def move_lift_position(data):
-    max_position = 160
-    min_position = 90
+    max_position = 180
+    min_position = 0
 
     value = data[1:]
     value = int(value)
@@ -131,29 +163,10 @@ def move_foot(data):
         move_lift_position(data)
 
 
-def Move_Forward(Speed):
-    Speed = abs(Speed)
-    LEFT_MOTOR.run_at_speed(-Speed)
-    RIGHT_MOTOR.run_at_speed(Speed)
+def set_speed_robot(data):
+    global Default_Speed
+    global Default_Turn_Speed
 
-
-def Move_Backward(Speed):
-    Speed = abs(Speed)
-    RIGHT_MOTOR.run_at_speed(-Speed)
-    LEFT_MOTOR.run_at_speed(Speed)
-
-
-def Turn_Left(Speed):
-    RIGHT_MOTOR.run_at_speed(Speed)
-    LEFT_MOTOR.run_at_speed(Speed)
-
-
-def Turn_Right(Speed):
-    RIGHT_MOTOR.run_at_speed(-Speed)
-    LEFT_MOTOR.run_at_speed(-Speed)
-
-
-def set_speed_robot(data, default_speed):
     value = data[1:]
 
     # convert value to an int
@@ -161,56 +174,27 @@ def set_speed_robot(data, default_speed):
 
     # set default_speed
     if (value >= 0) and (value <= 100):
-        default_speed = value
-    return default_speed
+        Default_Speed = value
 
 
-def LeftMotorInitialize(InPort):
-    global LEFT_MOTOR
-    LEFT_MOTOR = InPort
-    LEFT_MOTOR.default(stop=0, deceleration=100)
-    time.sleep(0.2)
-    return LEFT_MOTOR
+def move_forward(speed):
+    LEFT_MOTOR.run_at_speed(-speed)
+    RIGHT_MOTOR.run_at_speed(speed)
 
 
-def RightMotorInitialize(InPort):
-    global RIGHT_MOTOR
-    RIGHT_MOTOR = InPort
-    RIGHT_MOTOR.default(stop=0, deceleration=100)
-    time.sleep(0.2)
-    return RIGHT_MOTOR
+def move_backward(speed):
+    RIGHT_MOTOR.run_at_speed(-speed)
+    LEFT_MOTOR.run_at_speed(speed)
 
 
-def LiftMotorInitialize(InPort):
-    global LIFT_MOTOR
-    LIFT_MOTOR = InPort
-    LIFT_MOTOR.default(stop=2, deceleration=100)
-    LIFT_MOTOR.preset(0)
-    abs_pos = LIFT_MOTOR.get()[2]
-    LIFT_MOTOR.run_to_position(-abs_pos)
-    time.sleep(0.5)
-    LIFT_MOTOR.preset(0)
-    return LIFT_MOTOR
+def turn_left(speed):
+    RIGHT_MOTOR.run_at_speed(speed)
+    LEFT_MOTOR.run_at_speed(speed)
 
 
-def HandMotorInitialize(InPort):
-    global HAND_MOTOR
-    HAND_MOTOR = InPort
-    HAND_MOTOR.default(stop=2, deceleration=100)
-    HAND_MOTOR.preset(0)
-    abs_pos = HAND_MOTOR.get()[2]
-    HAND_MOTOR.run_to_position(-abs_pos)
-    time.sleep(0.5)
-    HAND_MOTOR.preset(0)
-    return HAND_MOTOR
-
-
-def Control_hand_motor_clockwise():
-    HAND_MOTOR.run_at_speed(10)
-
-
-def Control_hand_motor_counter_clockwise():
-    HAND_MOTOR.run_at_speed(-10)
+def turn_right(speed):
+    RIGHT_MOTOR.run_at_speed(-speed)
+    LEFT_MOTOR.run_at_speed(-speed)
 
 
 def control_lift_motor_clockwise():
@@ -221,82 +205,68 @@ def control_lift_motor_counter_clockwise():
     LIFT_MOTOR.run_at_speed(-20)
 
 
-def SensorInitialize(InPort):
-    global SENSOR
-    SENSOR = InPort
-    SENSOR.mode(0)
-    return SENSOR
+def display_image(image):
+    display.show(image)
 
 
-def ComPortInitialize(InPort):
-    global COMPort
-    COMPort = InPort
-    COMPort.mode(1)  # Set full duplex mode
-    time.sleep(0.1)
-    COMPort.baud(115200)  # Set baud rate
-    return COMPort
+def change_led_color(led_color):
+    led(led_color)
 
 
-def DisplayImage(Image):
-    display.show(Image)
-
-
-def ChangeLEDColor(LedColor):
-    led(LedColor)
-
-
-def CheckPressedButton(Button):
-    if Button == "Center":
+def check_pressed_button(button):
+    if button == "Center":
         return button.center.is_pressed()
-    if Button == "Left":
+    if button == "Left":
         return button.left.is_pressed()
-    if Button == "Right":
+    if button == "Right":
         return button.right.is_pressed()
 
 
-def LEGOCarInitialize() -> int:
-    # try:
-    global COMPort, LEFT_MOTOR, RIGHT_MOTOR, LIFT_MOTOR, HAND_MOTOR, SONAR_SENSOR
-    # Use Virtual Com Port for Serial communication
-    COMPort = BT_VCP(0)
-    # Wait 200ms for connection to be connected
-    time.sleep(0.02)
-    # Use Port A for Right motor
-    RIGHT_MOTOR = RightMotorInitialize(port.A.motor)
-    # Wait 200ms to initialize Motor
-    time.sleep(0.02)
-    # Use Port B for Left motor
-    LEFT_MOTOR = LeftMotorInitialize(port.B.motor)
-    # Wait 200ms to initialize Motor
-    time.sleep(0.02)
 
-    # Use Port C for foot motor
-    # LIFT_MOTOR = LiftMotorInitialize(port.C.motor)
-    # Wait 200ms to initialize Motor
-    time.sleep(0.02)
-    # Use Port D for hand motor
-    HAND_MOTOR = HandMotorInitialize(port.D.motor)
-    # Wait 200ms to initialize Motor
-    time.sleep(0.02)
+def init_lego_car() -> int:
+    try:
+        global COMPort, LEFT_MOTOR, RIGHT_MOTOR, LIFT_MOTOR, ARM_MOTOR, SONAR_SENSOR
+        # Use Virtual Com Port for Serial communication
+        COMPort = BT_VCP(0)
+        # Wait 200ms for connection to be connected
+        time.sleep(0.02)
+        # Use Port A for Right motor
+        RIGHT_MOTOR = init_right_motor(port.A.motor)
+        # Wait 200ms to initialize Motor
+        time.sleep(0.02)
+        # Use Port B for Left motor
+        LEFT_MOTOR = init_left_motor(port.B.motor)
+        # Wait 200ms to initialize Motor
+        time.sleep(0.02)
 
-    # Use Port E for Sonar sensor
-    # SONAR_SENSOR = SensorInitialize(port.E.device)
+        # Use Port C for foot motor
+        LIFT_MOTOR = init_lift_motor(port.C.motor)
+        # Wait 200ms to initialize Motor
+        time.sleep(0.02)
+        # Use Port D for hand motor
+        ARM_MOTOR = init_arm_motor(port.D.motor)
+        # Wait 200ms to initialize Motor
+        time.sleep(0.02)
 
-    # Reset gyro
-    motion.yaw_pitch_roll(0)
-    # Display Happy face since there is no problem :)
-    DisplayImage(Image.HAPPY)
-    # Wait 1 second for everything to be completed
-    time.sleep(0.5)
-    # Set LED color to Green
-    ChangeLEDColor(2)
-    return E_OK
-    # except:
-        # # Error happen :( Display Sad face
-        # DisplayImage(Image.SAD)
-        # # Set LED color to Red
-        # ChangeLEDColor(9)
-        # return E_NOT_OK
+        # Use Port E for Sonar sensor
+        SONAR_SENSOR = init_sensor(port.E.device)
+
+        # Reset gyro
+        motion.yaw_pitch_roll(0)
+        # Display Happy face since there is no problem :)
+        display_image(Image.HAPPY)
+        # Wait 1 second for everything to be completed
+        time.sleep(0.5)
+        # Set LED color to Green
+        change_led_color(2)
+        return E_OK
+    except:
+        # Error happen :( Display Sad face
+        display_image(Image.SAD)
+        # Set LED color to Red
+        change_led_color(9)
+        return E_NOT_OK
+
 
 
 class Navigator:
@@ -576,39 +546,36 @@ def norm(p1, p2):
     return math.sqrt((p2[1]-p1[1])**2 + (p2[0]-p1[0])**2)
 
 
-def ComCheck():
-    global mode
+def com_check():
+    global Mode
     # # Read keyboard input from USB serial
-    default_speed = 60
     data = COMPort.read()
     if data:
         try:
             data = str(data)
             data = data[2:-1]
             COMPort.write(data)
-            if mode == 'manual': 
+            if Mode == 'manual': 
                 if data[0] == "n":
-                    move_robot(data, default_speed)
+                    move_robot(data)
                 elif data[0] == "a":
                     move_arm(data)
                 elif data[0] == "f":
                     move_foot(data)
                 elif data[0] == "s":
-                    default_speed = set_speed_robot(data, default_speed)
-                    COMPort.write("Set robot speed to:" + str(default_speed))
-                elif data.isdigit():  # Display numbers on LEGO Car Display Screen
+                    set_speed_robot(data)
+                elif data[0] == "d":  # Display numbers on LEGO Car Display Screen
                     # DisplayScreen(data)
                     pass
                 else:
-                    # Hold all motors
                     RIGHT_MOTOR.float()
                     LEFT_MOTOR.float()
 
             if data[0] == "m":
                 if data[1] == '0':
-                    mode = 'manual'
+                    Mode = 'manual'
                 elif data[1] == '1':
-                    mode = 'auto'
+                    Mode = 'auto'
         except:
             pass
 
@@ -627,35 +594,32 @@ def Activate(OS_Type):
 
 
 def MainFnc_20ms():
-    global mode
-    nav.update()
-    if mode == 'auto':
-        sup.execute(0.02)
-    ComCheck()
-    COMPort.write("nav:%.1f,%.1f,%.1f" % (nav.x, nav.y, nav.the)) 
+    global Mode
+    MyNavigator.update()
+    if Mode == 'auto':
+        MySupervisor.execute(0.02)
+    com_check()
+    COMPort.write("nav:%.1f,%.1f,%.1f" % (MyNavigator.x, MyNavigator.y, MyNavigator.the)) 
     
-
 
 def MainFnc_200ms():
     pass
-    # COMPort.write("nav:%.1f,%.1f,%.1f" % (nav.x, nav.y, nav.the))
     
     
 def MainFnc_1000ms():
     pass
 
 
-robot = Robot()
-nav = Navigator(robot)
-sup = Supervisor(nav, robot)
-sup.add_target(20,0)
-sup.add_target(20,20)
-sup.add_target(40,20)
-sup.add_target(40,40)
-sup.add_target(60,60)
-sup.add_target(60,0)
-sup.add_target(0,0)
-
+MyRobot = Robot()
+MyNavigator = Navigator(MyRobot)
+MySupervisor = Supervisor(MyNavigator, MyRobot)
+MySupervisor.add_target(20,0)
+MySupervisor.add_target(20,20)
+MySupervisor.add_target(40,20)
+MySupervisor.add_target(40,40)
+MySupervisor.add_target(60,60)
+MySupervisor.add_target(60,0)
+MySupervisor.add_target(0,0)
 
 
 def main():
@@ -667,10 +631,10 @@ def main():
 
     # Initialize LEGO Car
     # If error happens, exit program
-    if (LEGOCarInitialize() == E_NOT_OK):
+    if (init_lego_car() == E_NOT_OK):
         exit()
-    robot.attach_motors(LEFT_MOTOR, RIGHT_MOTOR)
-    robot.reset_encoder()
+    MyRobot.attach_motors(LEFT_MOTOR, RIGHT_MOTOR)
+    MyRobot.reset_encoder()
     time.sleep(0.5)
 
     # Run program until Center Button is pressed
