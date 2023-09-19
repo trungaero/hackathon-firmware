@@ -20,6 +20,8 @@ OS_200ms = 1  # Define name to memorize easier
 OS_1000ms = 2  # Define name to memorize easier
 Emergency_Fault_Debounce = 3  # Debouncing time before triggering Emergency Stop
 Emergency_Heal_Debounce = 3  # Debouncing time before clearing Emergency Stop
+TRACKER_OFF = 0
+TRACKER_ON = 1
 
 """/**************************************************************************************************
 GLOBAL DEFINITION
@@ -45,7 +47,7 @@ Arm_Speed = 0
 Mode = "manual"
 Default_Speed = 60
 Default_Turn_Speed = 10
-
+Tracker_Status = TRACKER_OFF
 
 import math
 RAD2DEG = 180 / math.pi
@@ -116,6 +118,7 @@ def init_arm_motor(inport):
 def move_robot(data):
     global Default_Speed
     global Default_Turn_Speed
+    global Tracker_Status
 
     if data == "n1":
         move_forward(Default_Speed)
@@ -126,6 +129,9 @@ def move_robot(data):
     elif data == "n4":  # Turn right
         turn_right(Default_Turn_Speed)
 
+    if Tracker_Status == TRACKER_ON and (data == "n3" or data == "n4"): 
+        MyTracker.add_checkpoint()
+        
 
 def move_arm(data):
     global Arm_Position
@@ -175,6 +181,22 @@ def set_speed_robot(data):
     # set default_speed
     if (value >= 0) and (value <= 100):
         Default_Speed = value
+
+
+def toggle_tracker(data):
+    global Tracker_Status
+    if data[1] == '0':
+        MyTracker.clear()
+        Tracker_Status = TRACKER_OFF
+    elif data[1] == '1':
+        # add current location as first checkpoint
+        MyTracker.add_checkpoint() 
+        Tracker_Status = TRACKER_ON
+    elif data[1] == '2':
+        for x, y in MyTracker.checkpoints:
+            Supervisor.add_target(x, y)
+        MyTracker.clear()
+        Tracker_Status = TRACKER_OFF
 
 
 def move_forward(speed):
@@ -538,6 +560,22 @@ class Supervisor:
         return self.robot.uni_to_diff(*output)
 
 
+class Tracker:
+    def __init__(self, nav):
+        self.nav = nav
+        self.checkpoints = []
+
+    def add_checkpoint(self):
+        if len(self.checkpoints) == 0 or norm((self.nav.x, self.nav.y), self.checkpoints[-1]) < 10: 
+            self.checkpoints.append((self.nav.x, self.nav.y))
+
+    def clear(self):
+        self.checkpoints = []
+
+    def pop(self):
+        self.checkpoints.pop()
+
+
 def lin_interp(x1, y1, x2, y2, x):
     return y1 + (y2 - y1) * ((x - x1) / (x2 - x1))
 
@@ -567,6 +605,8 @@ def com_check():
                 elif data[0] == "d":  # Display numbers on LEGO Car Display Screen
                     # DisplayScreen(data)
                     pass
+                elif data[0] == 'o': # tracker on
+                    toggle_tracker(data)
                 else:
                     RIGHT_MOTOR.float()
                     LEFT_MOTOR.float()
@@ -612,6 +652,7 @@ def MainFnc_1000ms():
 
 MyRobot = Robot()
 MyNavigator = Navigator(MyRobot)
+MyTracker = Tracker(MyNavigator)
 MySupervisor = Supervisor(MyNavigator, MyRobot)
 MySupervisor.add_target(20,0)
 MySupervisor.add_target(20,20)
